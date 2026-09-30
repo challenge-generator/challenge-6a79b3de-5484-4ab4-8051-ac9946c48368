@@ -1,0 +1,609 @@
+openapi: 3.1.0
+info:
+  title: API de Transacciones - Protocolos de Comunicación
+  description: >
+    API REST para gestión de transacciones bancarias con soporte para múltiples protocolos
+    de comunicación (REST, gRPC, RSocket, AMQP, GraphQL). Este contrato define la interfaz
+    para el microservicio de transacciones del sistema financiero.
+  version: 1.0.0
+  contact:
+    name: Equipo de Desarrollo Pragma
+    email: desarrollo@pragma.com.co
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:8080
+    description: Servidor de desarrollo local
+    variables:
+      scheme:
+        default: http
+        enum:
+          - http
+          - https
+  - url: https://api.pragma.com.co/v1
+    description: Servidor de producción
+    variables:
+      scheme:
+        default: https
+        enum:
+          - https
+
+tags:
+  - name: Transacciones
+    description: >
+      Operaciones CRUD sobre transacciones financieras. Cada transacción representa
+      una transferencia entre cuentas bancarias con soporte para idempotencia.
+  - name: Salud
+    description: Endpoints de monitoreo y salud del servicio
+  - name: Métricas
+    description: Endpoints de métricas y observabilidad
+
+paths:
+  /api/v1/transacciones:
+    post:
+      tags:
+        - Transacciones
+      summary: Crear una nueva transacción
+      description: >
+        Crea una nueva transacción bancaria entre dos cuentas. El sistema genera
+        un ID único y un idempotencyKey para garantizar la idempotencia de la operación.
+        Soporta los protocolos: REST (HTTP), gRPC, RSocket, AMQP y GraphQL.
+      operationId: crearTransaccion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransaccionRequest'
+            example:
+              monto: 150000.50
+              cuentaOrigen: "CUENTA_001"
+              cuentaDestino: "CUENTA_002"
+              descripcion: "Pago de servicios"
+      responses:
+        '201':
+          description: Transacción creada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransaccionResponse'
+          headers:
+            X-Idempotency-Key:
+              description: Clave de idempotencia para reintentos
+              schema:
+                type: string
+              example: "idem_abc123def456"
+        '400':
+          description: Solicitud inválida - datos de entrada incorrectos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                monto_invalido:
+                  summary: Monto inválido
+                  value:
+                    codigo: "VALIDATION_ERROR"
+                    mensaje: "El monto debe ser mayor a cero"
+                    detalles:
+                      - campo: "monto"
+                        problema: "MONTO_MENOR_IGUAL_CERO"
+                cuenta_invalida:
+                  summary: Cuenta de origen inválida
+                  value:
+                    codigo: "VALIDATION_ERROR"
+                    mensaje: "La cuenta de origen no puede ser igual a la cuenta destino"
+                    detalles:
+                      - campo: "cuentaDestino"
+                        problema: "CUENTAS_IGUALES"
+        '409':
+          description: Conflicto - transacción duplicada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "DUPLICATE_TRANSACTION"
+                mensaje: "Ya existe una transacción con esta clave de idempotencia"
+                detalles:
+                  - campo: "idempotencyKey"
+                    problema: "DUPLICATE_KEY"
+                    transactionId: "tx_abc123"
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "INTERNAL_ERROR"
+                mensaje: "Error al procesar la transacción"
+                detalles: []
+
+    get:
+      tags:
+        - Transacciones
+      summary: Listar todas las transacciones
+      description: >
+        Obtiene un listado paginado de todas las transacciones. Soporta filtros
+        por estado, rango de fechas y cuenta.
+      operationId: listarTransacciones
+      parameters:
+        - name: page
+          in: query
+          description: Número de página (0-indexed)
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: size
+          in: query
+          description: Tamaño de página
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: estado
+          in: query
+          description: Filtrar por estado de transacción
+          schema:
+            $ref: '#/components/schemas/EstadoTransaccion'
+        - name: cuentaOrigen
+          in: query
+          description: Filtrar por cuenta de origen
+          schema:
+            type: string
+            pattern: "^[A-Z_]+[0-9]+$"
+        - name: fechaInicio
+          in: query
+          description: Fecha inicial del rango (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: fechaFin
+          in: query
+          description: Fecha final del rango (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Lista de transacciones obtenida exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransacciones'
+        '400':
+          description: Parámetros de consulta inválidos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transacciones/{id}:
+    get:
+      tags:
+        - Transacciones
+      summary: Obtener una transacción por ID
+      description: >
+        Recupera los detalles de una transacción específica mediante su identificador único.
+      operationId: obtenerTransaccion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la transacción (UUID)
+          schema:
+            type: string
+            format: uuid
+            example: "550e8400-e29b-41d4-a716-446655440000"
+      responses:
+        '200':
+          description: Transacción encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransaccionResponse'
+        '404':
+          description: Transacción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "NOT_FOUND"
+                mensaje: "Transacción no encontrada"
+                detalles:
+                  - campo: "id"
+                    problema: "TRANSACTION_NOT_FOUND"
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Transacciones
+      summary: Actualizar estado de una transacción
+      description: >
+        Actualiza el estado de una transacción existente. Útil para retry manual
+        o actualización de estado en casos de falla.
+      operationId: actualizarEstadoTransaccion
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador único de la transacción
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActualizacionEstadoRequest'
+            example:
+              nuevoEstado: "COMPLETADA"
+              razon: "Confirmación de destino"
+      responses:
+        '200':
+          description: Estado actualizado exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransaccionResponse'
+        '400':
+          description: Solicitud inválida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Transacción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflicto de estado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "STATE_CONFLICT"
+                mensaje: "No se puede actualizar desde el estado actual"
+                detalles:
+                  - campo: "estado"
+                    problema: "INVALID_STATE_TRANSITION"
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/transacciones/{id}/idempotency-key:
+    post:
+      tags:
+        - Transacciones
+      summary: Generar nueva clave de idempotencia
+      description: >
+        Genera una nueva clave de idempotencia para una transacción existente,
+        útil cuando se necesita reintentar una operación sin crear duplicados.
+      operationId: generarClaveIdempotencia
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Identificador de la transacción
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Clave de idempotencia generada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  idempotencyKey:
+                    type: string
+                    description: Nueva clave de idempotencia
+                    example: "idem_nueva_clave_123"
+                  transactionId:
+                    type: string
+                    format: uuid
+        '404':
+          description: Transacción no encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /actuator/health:
+    get:
+      tags:
+        - Salud
+      summary: Verificar salud del servicio
+      description: >
+        Endpoint de health check para monitoreo. Returns el estado de salud
+        del servicio incluyendo componentes críticos (RabbitMQ, gRPC, RSocket).
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Servicio saludable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Servicio no saludable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /actuator/info:
+    get:
+      tags:
+        - Salud
+      summary: Información de la aplicación
+      description: >
+        Retorna información de la aplicación incluyendo versión, entorno
+        y configuración activa.
+      operationId: appInfo
+      responses:
+        '200':
+          description: Información de la aplicación
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        example: "integracion-protocolos"
+                      version:
+                        type: string
+                        example: "0.0.1-SNAPSHOT"
+                  java:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                        example: "21"
+                  spring:
+                    type: object
+                    properties:
+                      version:
+                        type: string
+                        example: "3.5.6"
+
+components:
+  schemas:
+    TransaccionRequest:
+      type: object
+      required:
+        - monto
+        - cuentaOrigen
+        - cuentaDestino
+      properties:
+        monto:
+          type: number
+          format: decimal
+          description: Monto de la transacción (mayor a cero)
+          minimum: 0.01
+          maximum: 999999999.99
+          example: 150000.50
+        cuentaOrigen:
+          type: string
+          description: Cuenta bancaria de origen
+          pattern: "^[A-Z_]+[0-9]+$"
+          example: "CUENTA_001"
+        cuentaDestino:
+          type: string
+          description: Cuenta bancaria de destino
+          pattern: "^[A-Z_]+[0-9]+$"
+          example: "CUENTA_002"
+        descripcion:
+          type: string
+          description: Descripción de la transacción
+          maxLength: 500
+          example: "Pago de servicios mensuales"
+        idempotencyKey:
+          type: string
+          description: >
+            Clave de idempotencia opcional. Si no se provee, el sistema
+            genera una automáticamente.
+          maxLength: 100
+          example: "idem_pago_servicios_001"
+
+    TransaccionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único de la transacción
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        monto:
+          type: number
+          format: decimal
+          example: 150000.50
+        cuentaOrigen:
+          type: string
+          example: "CUENTA_001"
+        cuentaDestino:
+          type: string
+          example: "CUENTA_002"
+        timestamp:
+          type: string
+          format: date-time
+          description: Timestamp de creación de la transacción
+          example: "2024-01-15T10:30:00Z"
+        estado:
+          $ref: '#/components/schemas/EstadoTransaccion'
+        idempotencyKey:
+          type: string
+          example: "idem_pago_servicios_001"
+        descripcion:
+          type: string
+          example: "Pago de servicios mensuales"
+
+    EstadoTransaccion:
+      type: string
+      enum:
+        - PENDIENTE
+        - PROCESANDO
+        - COMPLETADA
+        - FALLIDA
+        - CANCELADA
+      description: Estados posibles de una transacción
+      example: "PENDIENTE"
+
+    ActualizacionEstadoRequest:
+      type: object
+      required:
+        - nuevoEstado
+      properties:
+        nuevoEstado:
+          $ref: '#/components/schemas/EstadoTransaccion'
+        razon:
+          type: string
+          description: Razón del cambio de estado
+          maxLength: 500
+          example: "Confirmación manual del destino"
+
+    PaginatedTransacciones:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransaccionResponse'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          description: Total de transacciones que coinciden con los filtros
+          example: 150
+        totalPages:
+          type: integer
+          example: 8
+
+    ErrorResponse:
+      type: object
+      properties:
+        codigo:
+          type: string
+          description: Código de error categorizado
+          example: "VALIDATION_ERROR"
+        mensaje:
+          type: string
+          description: Mensaje legible para el consumidor
+          example: "La solicitud contiene datos inválidos"
+        detalles:
+          type: array
+          description: Lista de errores específicos de campo
+          items:
+            type: object
+            properties:
+              campo:
+                type: string
+                description: Campo que contiene el error
+                example: "monto"
+              problema:
+                type: string
+                description: Código del problema específico
+                example: "MONTO_MENOR_IGUAL_CERO"
+              transactionId:
+                type: string
+                description: ID de transacción relacionada (para errores de duplicado)
+                format: uuid
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - UP
+            - DOWN
+            - DEGRADED
+          description: Estado general del servicio
+          example: "UP"
+        components:
+          type: object
+          description: Estado de componentes individuales
+          properties:
+            rabbitmq:
+              $ref: '#/components/schemas/ComponentHealth'
+            grpc:
+              $ref: '#/components/schemas/ComponentHealth'
+            rsocket:
+              $ref: '#/components/schemas/ComponentHealth'
+
+    ComponentHealth:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - UP
+            - DOWN
+          example: "UP"
+        details:
+          type: object
+          description: Detalles específicos del componente
+          properties:
+            host:
+              type: string
+              example: "localhost"
+            port:
+              type: integer
+              example: 9090
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: >
+        Clave de API para autenticación. Obtener del portal de desarrolladores.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        Token JWT para autenticación Bearer. Obtener del endpoint de login.
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []

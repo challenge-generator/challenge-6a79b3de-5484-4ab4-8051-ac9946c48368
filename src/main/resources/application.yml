@@ -1,0 +1,99 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: integracion-protocolos
+  main:
+    allow-bean-definition-overriding: true
+  rsocket:
+    server:
+      port: 7000
+      transport: tcp
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 10
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+          max-interval: 10000
+  graphql:
+    graphiql:
+      enabled: true
+    schema:
+      printer:
+        enabled: true
+
+grpc:
+  server:
+    port: 9090
+    address: 0.0.0.0
+    enable-reflection: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+protocolos:
+  endpoints:
+    core-banking:
+      base-url: http://localhost:8081
+      timeout: 5000
+      retry:
+        max-attempts: 3
+        backoff:
+          initial-interval: 500
+          max-interval: 2000
+          multiplier: 2.0
+    fraud-detection:
+      base-url: http://localhost:8082
+      timeout: 3000
+      retry:
+        max-attempts: 2
+        backoff:
+          initial-interval: 300
+          max-interval: 1000
+          multiplier: 1.5
+  amqp:
+    exchange:
+      transacciones: transacciones.exchange
+    queue:
+      transacciones: transacciones.queue
+      transacciones.dlq: transacciones.dlq
+    routing-key:
+      transacciones: transacciones.routingkey
+    ttl:
+      message: 30000
+      dlq: 60000
+  rsocket:
+    payload:
+      metadata:
+        mime-type: application/json
+    responder:
+      idle-timeout: 30000
+  grpc:
+    client:
+      coreBanking:
+        address: static://localhost:9091
+        negotiation-type: plaintext
+      fraudDetection:
+        address: static://localhost:9092
+        negotiation-type: plaintext

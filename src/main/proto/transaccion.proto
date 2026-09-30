@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+option java_package = "com.pragma.integracion.protocolos.infrastructure.grpc";
+option java_multiple_files = true;
+
+package com.pragma.integracion.protocolos;
+
+service TransaccionService {
+    rpc crearTransaccion (TransaccionRequest) returns (TransaccionResponse);
+    rpc obtenerTransaccion (TransaccionByIdRequest) returns (TransaccionResponse);
+    rpc listarTransacciones (ListarTransaccionesRequest) returns (stream TransaccionResponse);
+    rpc crearTransaccionesStreaming (stream TransaccionRequest) returns (stream TransaccionResponse);
+    rpc transaccionesPorCuenta (TransaccionPorCuentaRequest) returns (stream TransaccionResponse);
+}
+
+message TransaccionRequest {
+    string monto = 1;
+    string cuenta_origen = 2;
+    string cuenta_destino = 3;
+    string estado = 4;
+    string idempotency_key = 5;
+    string descripcion = 6;
+}
+
+message TransaccionResponse {
+    string id = 1;
+    string monto = 2;
+    string cuenta_origen = 3;
+    string cuenta_destino = 4;
+    string timestamp = 5;
+    string estado = 6;
+    string idempotency_key = 7;
+    string descripcion = 8;
+}
+
+message TransaccionByIdRequest {
+    string id = 1;
+}
+
+message ListarTransaccionesRequest {
+    string filtro_estado = 1;
+    string filtro_cuenta = 2;
+    int32 limite = 3;
+    int32 offset = 4;
+}
+
+message TransaccionPorCuentaRequest {
+    string cuenta = 1;
+    bool incluir_origen = 2;
+    bool incluir_destino = 3;
+}

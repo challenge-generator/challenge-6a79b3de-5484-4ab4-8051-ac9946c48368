@@ -1,0 +1,43 @@
+scalar DateTime
+
+type Query {
+    transacciones: [Transaccion!]!
+    transaccion(id: ID!): Transaccion
+    transaccionesPorCuenta(cuenta: String!): [Transaccion!]!
+    transaccionesPorEstado(estado: String!): [Transaccion!]!
+    transaccionesPorMontoRango(montoMin: Float!, montoMax: Float!): [Transaccion!]!
+    estadisticas: Estadisticas!
+}
+
+type Mutation {
+    crearTransaccion(input: TransaccionInput!): Transaccion!
+    actualizarEstado(id: ID!, nuevoEstado: String!): Transaccion!
+}
+
+type Transaccion {
+    id: ID!
+    monto: Float!
+    cuentaOrigen: String!
+    cuentaDestino: String!
+    timestamp: String!
+    estado: String!
+    idempotencyKey: String!
+    descripcion: String!
+}
+
+input TransaccionInput {
+    monto: Float!
+    cuentaOrigen: String!
+    cuentaDestino: String!
+    descripcion: String
+    idempotencyKey: String
+}
+
+type Estadisticas {
+    totalTransacciones: Int!
+    montoTotal: Float!
+    completadas: Int!
+    pendientes: Int!
+    fallidas: Int!
+    promedioMonto: Float!
+}
